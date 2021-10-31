@@ -1,0 +1,187 @@
+include "std.porth"
+include "socket.porth"
+
+const sizeof(sockaddr_in) 16 end
+const sizeof(sockaddr_in.sin_family) 2 end
+const sizeof(sockaddr_in.sin_port) 2 end
+const sizeof(sockaddr_in.sin_addr) 4 end
+const sizeof(sockaddr_in.sin_zero) sizeof(ptr) end
+
+const sizeof(socklen_t) sizeof(u32) end
+memory size sizeof(socklen_t) end
+
+memory addr.sin_family sizeof(sockaddr_in.sin_family) end
+memory addr.sin_port   sizeof(sockaddr_in.sin_port)   end
+memory addr.sin_addr   sizeof(sockaddr_in.sin_addr)   end
+memory addr.sin_zero   sizeof(sockaddr_in.sin_zero)   end
+memory addr            sizeof(ptr)                    end
+addr.sin_family addr !64 
+
+memory clientName.sin_family sizeof(sockaddr_in.sin_family) end
+memory clientName.sin_port   sizeof(sockaddr_in.sin_port)   end
+memory clientName.sin_addr   sizeof(sockaddr_in.sin_addr)   end
+memory clientName.sin_zero   sizeof(sockaddr_in.sin_zero)   end
+memory clientName            sizeof(ptr)                    end
+clientName.sin_family clientName !64 
+
+memory sd    sizeof(u64) end
+memory pid   sizeof(u64) end
+0 pid !64
+
+memory port 2 end
+const DEFAULT_PORT 5000 end
+
+proc little_endianes_u32 int -- int in
+    dup 255 and 8 shl swap
+    8 shr or
+end
+
+proc sendto int ptr int int ptr int -- int in SYS_sendto syscall6 end
+proc recvfrom ptr ptr int int ptr int -- int in SYS_recvfrom syscall6 end
+proc socket int int int -- int in SYS_socket syscall3 end
+proc bind int ptr int -- int in SYS_bind syscall3 end
+proc listen int int -- int in SYS_listen syscall2 end
+proc accept ptr ptr int -- int in SYS_accept syscall3 end
+proc poll int int ptr -- int in SYS_poll syscall3 end
+
+
+const TIMEOUT 1000 60 * end
+
+proc ready_to_recv 
+    int
+    --
+    bool
+in
+
+    memory ufd sizeof(ptr) end
+    memory ufd.fd sizeof(u32) end
+    memory ufd.events 2 end
+    memory ufd.revents 2 end
+
+    ufd.fd ufd !64
+    POLLIN ufd.events !16
+    ufd.fd !32
+    
+    TIMEOUT 1 ufd @64 cast(ptr) poll dup -1 = if 
+        "poll error\n" eputs
+        drop false 
+    else 0 = if* //timeout
+        "timeout\n" eputs
+        false
+    else
+        ufd.revents @16 POLLIN and cast(bool) if
+            true
+        else
+            false
+        end
+    end
+end
+
+proc program-name -- int ptr in
+    0 nth_argv cstr-to-str
+end
+
+proc handle-client int in
+    const BUFFER_CAP 1024 end
+    memory buffer BUFFER_CAP end
+    memory read_chars sizeof(u64) end
+    -1 read_chars !64
+    memory client sizeof(u64) end
+    client !64
+
+    "client " puts client @64 putu  " connected\n" puts
+
+    while 
+        client @64 ready_to_recv 
+    do
+        NULL NULL 0 BUFFER_CAP buffer client @64 recvfrom 
+        dup read_chars !64
+
+        0 != if
+            "recieved from client "puts client @64 putu ": " puts read_chars @64 buffer puts
+        end
+
+        0 NULL 0 read_chars @64 buffer client @64 sendto drop
+    end
+
+    client @64 close 0 = if
+        "client " puts client @64 putu  " connection closed\n" puts
+    else
+        "ERROR: failed to close connection to client " eputs client @64 print
+    end
+    
+end
+
+proc usage in
+    "Usage: " puts program-name puts " <SUBCOMMAND>\n"                          puts
+    "  SUBCOMMANDS:\n"                                                          puts
+    "    <port>       Port used to start the server. Default value is 5000\n"   puts
+    "    help         Print this help to stdout and exit with 0 code\n"         puts
+end
+
+proc main in 
+    
+    argc 1 = if
+        DEFAULT_PORT port !64
+    else argc 2 = if*
+        1 nth_argv 
+        dup "help"c cstreq if
+            usage
+            0 exit
+        end
+        cstr-to-str try-parse-int if
+            port !64
+        else
+            usage
+            "ERROR: Input port is not a number\n" eputs drop
+            1 exit
+        end  
+    else
+        usage
+        1 exit
+    end
+
+    0 SOCK_STREAM PF_INET socket 
+    sd !64
+
+    0 addr.sin_family !16
+    port @64 little_endianes_u32 addr.sin_port !16
+    INADDR_ANY addr.sin_addr !32
+
+    sizeof(sockaddr_in) addr @64 cast(ptr) sd @64 bind
+    0 != if
+        "ERROR: error bind\n" eputs
+        1 exit
+    end
+
+    0 sd @64 listen
+    0 != if
+        "ERROR: error listen\n" eputs
+        1 exit
+    end
+
+    "Listening on port " puts port @64 print
+
+    while pid @64 0 = do
+        size clientName @64 cast(ptr) sd @64 accept dup -1 != if
+            fork
+            dup pid !64
+            0 != if 
+                handle-client
+            else
+                drop
+            end
+        else
+            drop
+        end
+    end
+
+    pid @64 0 = if
+        sd @64 close drop
+    else
+        while true do end
+    end
+
+end
+
+main
