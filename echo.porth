@@ -15,18 +15,17 @@ memory addr.sin_port   sizeof(sockaddr_in.sin_port)   end
 memory addr.sin_addr   sizeof(sockaddr_in.sin_addr)   end
 memory addr.sin_zero   sizeof(sockaddr_in.sin_zero)   end
 memory addr            sizeof(ptr)                    end
-addr.sin_family addr !64 
 
 memory clientName.sin_family sizeof(sockaddr_in.sin_family) end
 memory clientName.sin_port   sizeof(sockaddr_in.sin_port)   end
 memory clientName.sin_addr   sizeof(sockaddr_in.sin_addr)   end
 memory clientName.sin_zero   sizeof(sockaddr_in.sin_zero)   end
 memory clientName            sizeof(ptr)                    end
-clientName.sin_family clientName !64 
+
 
 memory sd    sizeof(u64) end
 memory pid   sizeof(u64) end
-0 pid !64
+
 
 memory port 2 end
 const DEFAULT_PORT 5000 end
@@ -62,7 +61,7 @@ in
     POLLIN ufd.events !16
     ufd.fd !32
     
-    TIMEOUT 1 ufd @64 cast(ptr) poll dup -1 = if 
+    TIMEOUT 1 ufd @64 cast(ptr) poll dup 0 1 - = if 
         "poll error\n" eputs
         drop false 
     else 0 = if* //timeout
@@ -85,7 +84,7 @@ proc handle-client int in
     const BUFFER_CAP 1024 end
     memory buffer BUFFER_CAP end
     memory read_chars sizeof(u64) end
-    -1 read_chars !64
+    0 1 - read_chars !64
     memory client sizeof(u64) end
     client !64
 
@@ -119,8 +118,15 @@ proc usage in
     "    help         Print this help to stdout and exit with 0 code\n"         puts
 end
 
+proc init in
+    addr.sin_family addr !64 
+    clientName.sin_family clientName !64 
+    0 pid !64
+end
+
 proc main in 
-    
+    init
+
     argc 1 = if
         DEFAULT_PORT port !64
     else argc 2 = if*
@@ -163,7 +169,7 @@ proc main in
     "Listening on port " puts port @64 print
 
     while pid @64 0 = do
-        size clientName @64 cast(ptr) sd @64 accept dup -1 != if
+        size clientName @64 cast(ptr) sd @64 accept dup 0 1 - != if
             fork
             dup pid !64
             0 != if 
@@ -183,5 +189,3 @@ proc main in
     end
 
 end
-
-main
